@@ -10,15 +10,18 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.datasets import fetch_20newsgroups
+from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import KFold
+from sklearn.preprocessing import normalize
 
 SEED, SEEDS = 42, [42, 43, 44]
 K = 5                     # pages placed in the agent's context
 PAGE_CHARS = 1500         # each post is truncated to this many characters
 PAGES_PER_CAT = 150
 N_TEST_CATS = 7           # remaining categories form the training pool
-GRID = [(7, 100), (7, 300), (15, 100), (15, 300)]  # (num_leaves, n_estimators)
+LSA_DIMS = 100            # latent semantic dimensions (unsupervised, fitted per pool)
+GRID = [(7, 100), (7, 300), (15, 100), (15, 300), (31, 100)]  # (num_leaves, n_estimators)
 T0 = time.time()
 
 
@@ -54,17 +57,32 @@ def sample_pages(data, cat_ids, rng):
     return texts, np.array(labels)
 
 
-def pair_features(vec, queries, pages):
-    """Cosine matrix [Q,P] and per-pair features [Q,P,4]: cosine, cosine relative to the
-    query's best score, query-term coverage, log page length."""
-    cos = (vec.transform(queries) @ vec.transform(pages).T).toarray()  # rows are L2-normalised
+def within_query_z(x):
+    return (x - x.mean(axis=1, keepdims=True)) / (x.std(axis=1, keepdims=True) + 1e-12)
+
+
+def pair_features(vec, svd, queries, pages):
+    """Cosine matrix [Q,P] (TF-IDF baseline scores) and per-pair features [Q,P,F]:
+    TF-IDF cosine, cosine relative to the query's best score, within-query z-score and
+    rank of the cosine, query-term coverage, LSA cosine and its within-query z-score,
+    log page length."""
+    Qm, Pm = vec.transform(queries), vec.transform(pages)
+    cos = (Qm @ Pm.T).toarray()  # rows are L2-normalised
     rel_cos = cos / (cos.max(axis=1, keepdims=True) + 1e-12)
+    z_cos = within_query_z(cos)
+    rank = np.argsort(np.argsort(-cos, axis=1, kind="stable"), axis=1) / cos.shape[1]
+
     analyze = vec.build_analyzer()
     page_terms = [set(analyze(p)) for p in pages]
     q_terms = [set(analyze(q)) for q in queries]
     cov = np.array([[len(qt & pt) / max(len(qt), 1) for pt in page_terms] for qt in q_terms])
+
+    lsa = normalize(svd.transform(Qm)) @ normalize(svd.transform(Pm)).T
+    z_lsa = within_query_z(lsa)
+
     loglen = np.broadcast_to(np.log1p([len(p) for p in pages]), cos.shape)
-    return cos, np.stack([cos, rel_cos, cov, loglen], axis=-1)
+    feats = np.stack([cos, rel_cos, z_cos, rank, cov, lsa, z_lsa, loglen], axis=-1)
+    return cos, feats
 
 
 def evaluate(scores, rel, page_len):
@@ -107,11 +125,13 @@ def main():
     len_te = np.array([len(p) for p in te_pages])
     log(f"train pool: {len(tr_pages)} pages/{len(tr_q)} queries; test pool: {len(te_pages)}/{len(te_q)}")
 
-    # Unsupervised TF-IDF fitted on each pool's own pages; identical for both models
+    # Unsupervised TF-IDF and LSA fitted on each pool's own pages; TF-IDF cosine is the baseline
     vec_tr = TfidfVectorizer(stop_words="english", sublinear_tf=True).fit(tr_pages)
     vec_te = TfidfVectorizer(stop_words="english", sublinear_tf=True).fit(te_pages)
-    _, F_tr = pair_features(vec_tr, tr_q, tr_pages)
-    cos_te, F_te = pair_features(vec_te, te_q, te_pages)
+    svd_tr = TruncatedSVD(LSA_DIMS, random_state=SEED).fit(vec_tr.transform(tr_pages))
+    svd_te = TruncatedSVD(LSA_DIMS, random_state=SEED).fit(vec_te.transform(te_pages))
+    _, F_tr = pair_features(vec_tr, svd_tr, tr_q, tr_pages)
+    cos_te, F_te = pair_features(vec_te, svd_te, te_q, te_pages)
 
     # Hyper-parameter selection: 4-fold CV over TRAINING queries only (metric: precision@5)
     folds = list(KFold(4, shuffle=True, random_state=SEED).split(np.arange(len(tr_q))))
@@ -182,7 +202,10 @@ def main():
         "baseline": "TF-IDF cosine similarity retrieval, top-5 pages (RAG-style retriever).",
         "improved": "Class-balanced LightGBM classifier trained on query-page pairs from training "
                     "categories, with TF-IDF cosine, cosine relative to the query's best score, "
-                    "query-term coverage and log page length; ranks test pages by predicted probability, top 5.",
+                    "within-query z-score and rank of the cosine, query-term coverage, LSA "
+                    "(100-dim TruncatedSVD on TF-IDF, fitted unsupervised per pool) cosine and its "
+                    "within-query z-score, and log page length; ranks test pages by predicted "
+                    "probability, top 5.",
         "metrics": {
             "baseline_score": bp,
             "improved_score": ip,
@@ -203,8 +226,9 @@ def main():
                  "Only seven test queries, so results are high-variance; the reported std only reflects "
                  "LightGBM seed variation, not the choice of category split. Test categories are 7 of 20 "
                  "(35% of categories, a deliberate category-level split), which is above the 20-30% "
-                 "guideline. Vectorizers are fitted unsupervised on each pool's pages. Hyper-parameters "
-                 "were chosen by query-level CV on training categories only. fetch_20newsgroups has no "
+                 "guideline. Vectorizers and LSA are fitted unsupervised on each pool's pages; the TF-IDF "
+                 "baseline is unchanged. Hyper-parameters were chosen by query-level CV on training "
+                 "categories only; the test pool was never used for selection. fetch_20newsgroups has no "
                  "timeout option, so a 60 s socket timeout and retry/backoff wrap the download.",
     }
     with open("results.json", "w", encoding="utf-8") as f:

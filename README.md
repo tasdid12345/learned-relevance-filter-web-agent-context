@@ -1,25 +1,17 @@
-# Class-Balanced LightGBM Relevance Filter vs TF-IDF Retrieval for Agent Web Context
+# Relevance filter for agent web context
 
-Agents that read the web through retrieval (RAG-style interfaces) must choose which pages enter a limited context window. The paper "MCP vs RAG vs NLWeb vs HTML: A Comparison of the Effectiveness and Efficiency of Different Agent Interfaces to the Web" (2026) compares how effectively and efficiently different interfaces deliver web content to agents, so the cost of each page in tokens matters as much as whether relevant pages are found. This experiment asks whether a learned relevance filter can improve on a plain retriever on both counts.
+Question: can a class-balanced LightGBM relevance filter keep more relevant pages in an agent's top-5 context than a TF-IDF top-5 retrieval baseline?
 
-**Question:** Can a class-balanced LightGBM relevance filter over web pages keep more relevant pages in an agent's top-5 context while reading fewer characters than a standard TF-IDF retrieval baseline?
+Setup:
+- Stand-in pages: 20 Newsgroups posts (headers, footers and quotes removed), truncated to 1,500 characters.
+- Categories are split once (seed 42) into 13 training categories and 7 unseen test categories. Each category name is a query.
+- Baseline: TF-IDF cosine retrieval, top 5 pages per query (unchanged).
+- Improved: class-balanced LightGBM over query-page pairs. Features are TF-IDF cosine, cosine relative to the query's best score, within-query z-score and rank of the cosine, query-term coverage, a 100-dimensional LSA cosine (with its within-query z-score), and log page length. Hyper-parameters are chosen by 4-fold CV over training queries only.
+- Metric: precision@5 on test queries, averaged over three LightGBM seeds. Success@5 and tokens read per query are reported as secondary metrics.
 
-**Dataset:** The public 20 Newsgroups corpus (via scikit-learn's `fetch_20newsgroups`, headers, footers and quotes removed) stands in for web pages. Each post is truncated to its first 1,500 characters. Categories are split into training and unseen test categories, and each category name is used as a query. This is not the paper's own dataset.
+Run: `python analysis.py` (writes `results.json` and `figures/`). Requires numpy, scikit-learn, lightgbm, matplotlib.
 
-**Baseline:** TF-IDF cosine similarity retrieval, returning the top five pages per query.
-
-**Improved model:** A class-balanced LightGBM classifier trained on query-page pairs from the training categories. Its features are TF-IDF cosine, cosine relative to the query's best score, query-term coverage and log page length. Test pages are ranked by predicted probability, and the top five are kept.
-
-**Metrics:** Main metric is precision@5. Secondary metrics are success@5 and mean tokens read per query (characters/4).
-
-## How to run
-
-```bash
-pip install -r requirements.txt
-python analysis.py
-```
-
-Results: written to `results.json` (charts saved to `figures/`).
+Caveat: there are only seven test queries, so the results are high-variance.
 
 ## Reference
 
