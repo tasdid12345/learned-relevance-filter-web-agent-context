@@ -13,6 +13,31 @@ Run: `python analysis.py` (writes `results.json` and `figures/`). Requires numpy
 
 Caveat: there are only seven test queries, so the results are high-variance.
 
+## Results (latest run)
+
+On 20 Newsgroups pages as a web-page stand-in (7 unseen test queries), a standard TF-IDF top-5 retrieval baseline reached 69% precision@5 while my class-balanced LightGBM filter reached 70%, a small, high-variance gain that read more tokens per query (1,088 vs 758), not fewer.
+
+| Metric | Value |
+|---|---|
+| baseline_score | 0.6857 |
+| improved_score | 0.7048 |
+| improvement | 0.01905 |
+| baseline_score_std | 1.11e-16 |
+| improved_score_std | 0.02694 |
+| baseline_success_at_5 | 1 |
+| improved_success_at_5 | 1 |
+| baseline_tokens_per_query | 758.2 |
+| improved_tokens_per_query | 1088 |
+| tokens_saving_per_query | -329.7 |
+| cv_precision_best | 0.6083 |
+| chosen_num_leaves | 15 |
+| chosen_n_estimators | 100 |
+| n_test_queries | 7 |
+
+Run on 2026-10-19. Full output: [results.json](results.json) · [run.log](run.log)
+
+Notes: Stand-in corpus, not the paper's web-agent setup (no LLM agent, no real web pages). Only seven test queries, so results are high-variance; the reported std only reflects LightGBM seed variation, not the choice of category split. Test categories are 7 of 20 (35% of categories, a deliberate category-level split), which is above the 20-30% guideline. Vectorizers and LSA are fitted unsupervised on each pool's pages; the TF-IDF baseline is unchanged. Hyper-parameters were chosen by query-level CV on training categories only; the test pool was never used for selection. fetch_20newsgroups has no timeout option, so a 60 s socket timeout and retry/backoff wrap the download.
+
 ## Reference
 
 This project is motivated by the following paper:
