@@ -1,0 +1,34 @@
+{
+  "question": "Can a class-balanced LightGBM relevance filter over web pages keep more relevant pages in an agent's top-5 context while reading fewer characters than a standard TF-IDF retrieval baseline?",
+  "method": "Posts from 20 Newsgroups (headers/footers/quotes removed) are pages truncated to 1,500 characters; categories are split into training and unseen test categories; category names are queries. Both models rank the test pages per query; metric is precision@5 with success@5 and tokens read as secondary metrics.",
+  "dataset": {
+    "name": "20 Newsgroups (scikit-learn fetch_20newsgroups) as web-page stand-in",
+    "source_url": "https://scikit-learn.org/stable/datasets/real_world.html#the-20-newsgroups-text-dataset",
+    "n_rows": 3000,
+    "n_train": 1950,
+    "n_test": 1050,
+    "same_as_paper": false,
+    "baseline_is_papers_method": false
+  },
+  "metric_name": "precision@5 (test queries)",
+  "higher_is_better": true,
+  "baseline": "TF-IDF cosine similarity retrieval, top-5 pages (RAG-style retriever).",
+  "improved": "Class-balanced LightGBM classifier trained on query-page pairs from training categories, with TF-IDF cosine, cosine relative to the query's best score, query-term coverage and log page length; ranks test pages by predicted probability, top 5.",
+  "metrics": {
+    "baseline_score": 0.6857142857142856,
+    "improved_score": 0.6761904761904761,
+    "improvement": -0.00952380952380949,
+    "baseline_score_std": 1.1102230246251565e-16,
+    "improved_score_std": 0.01346870059402948,
+    "baseline_success_at_5": 1.0,
+    "improved_success_at_5": 0.9047619047619048,
+    "baseline_tokens_per_query": 758.1785714285714,
+    "improved_tokens_per_query": 1125.3214285714284,
+    "tokens_saving_per_query": -367.142857142857,
+    "cv_precision_best": 0.6458333333333334,
+    "chosen_num_leaves": 7,
+    "chosen_n_estimators": 100,
+    "n_test_queries": 7
+  },
+  "notes": "Stand-in corpus, not the paper's web-agent setup (no LLM agent, no real web pages). Only seven test queries, so results are high-variance; the reported std only reflects LightGBM seed variation, not the choice of category split. Test categories are 7 of 20 (35% of categories, a deliberate category-level split), which is above the 20-30% guideline. Vectorizers are fitted unsupervised on each pool's pages. Hyper-parameters were chosen by query-level CV on training categories only. fetch_20newsgroups has no timeout option, so a 60 s socket timeout and retry/backoff wrap the download."
+}
